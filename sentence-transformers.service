@@ -1,0 +1,20 @@
+[Unit]
+Description=Sentence Transformers API Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sentence-api
+Environment=PATH=/opt/ai-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=EMBEDDING_MODEL=intfloat/multilingual-e5-small
+Environment=EMBEDDING_MODEL_CACHE=2
+ExecStart=/opt/ai-env/bin/python /opt/sentence-api/sentence-api.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
