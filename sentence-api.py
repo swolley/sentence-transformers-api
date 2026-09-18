@@ -55,9 +55,23 @@ def prefix_scheme(model_name):
 
 
 def apply_prefix(texts, model_name, input_type):
-    """Prepend the family prefix for input_type; no-op if unsupported/omitted.
+    """Ensure each text carries the family prefix for input_type (idempotent).
 
-    Returns (texts, applied) where applied says whether a prefix was added.
+    The client tells the server the *semantic* intent via input_type; the server
+    knows how each model family expects it. If a text already starts with the
+    expected prefix (e.g. the client pre-prefixed it, as the Laraplate config
+    does), it is kept as-is; otherwise the prefix is prepended. This makes the
+    endpoint safe for both "dumb" clients and clients that already prefix, with
+    no risk of double prefixes ("query: query: ...").
+
+    No-op (returns texts unchanged) when input_type is omitted or the model has
+    no prefix convention.
+
+    Returns (texts, added) where added is True if a prefix was added to at least
+    one text.
+
+    Note: detection is a startswith() check, so a passage that literally begins
+    with "query: " would be treated as already-prefixed. Acceptable in practice.
     """
     if not input_type:
         return texts, False
@@ -65,7 +79,15 @@ def apply_prefix(texts, model_name, input_type):
     if not scheme or input_type not in scheme:
         return texts, False
     prefix = scheme[input_type]
-    return [prefix + t for t in texts], True
+    added = False
+    out = []
+    for t in texts:
+        if t.startswith(prefix):
+            out.append(t)
+        else:
+            out.append(prefix + t)
+            added = True
+    return out, added
 
 
 # Warm the default so the first embed request is not a cold load.

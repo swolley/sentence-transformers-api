@@ -77,9 +77,11 @@ Genera gli embeddings. Body JSON:
 - `text` (string) **oppure** `texts` (array di string) — obbligatorio
 - `model` (string, opzionale) — override del modello di default
 - `input_type` (`"query"` | `"passage"`, opzionale) — intento **semantico**:
-  `query` = sto cercando, `passage` = sto indicizzando. Il server lo traduce nel
-  prefisso corretto per il modello (es. e5 → `query:` / `passage:`); per i
-  modelli che non usano prefissi viene ignorato. Se omesso, nessun prefisso.
+  `query` = sto cercando, `passage` = sto indicizzando. Il server garantisce il
+  prefisso corretto per il modello (es. e5 → `query:` / `passage:`) in modo
+  **idempotente**: se il testo è già prefissato lo lascia, altrimenti lo
+  aggiunge (nessun rischio di `query: query: ...`). Per i modelli senza
+  convenzione viene ignorato. Se omesso, nessun prefisso.
 - `normalize_embeddings` (bool, opzionale, default `true`)
 
 Il client resta **agnostico rispetto al modello**: manda sempre la stessa forma
