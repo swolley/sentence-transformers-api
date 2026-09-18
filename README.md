@@ -50,18 +50,45 @@ Stato del servizio e modelli caricati.
 }
 ```
 
+### `GET /models`
+
+Endpoint di discovery: il servizio carica qualsiasi modello su richiesta, quindi
+non c'è un elenco fisso di modelli ammessi. Restituisce il default, i modelli
+attualmente residenti e le famiglie che supportano `input_type`, così il client
+sa quando `input_type` conta.
+
+```json
+{
+  "default_model": "intfloat/multilingual-e5-small",
+  "loaded_models": ["intfloat/multilingual-e5-small"],
+  "model_cache": 2,
+  "input_types": ["query", "passage"],
+  "prefix_families": {
+    "e5": { "query": "query: ", "passage": "passage: " },
+    "nomic": { "query": "search_query: ", "passage": "search_document: " }
+  }
+}
+```
+
 ### `POST /embed`
 
 Genera gli embeddings. Body JSON:
 
 - `text` (string) **oppure** `texts` (array di string) — obbligatorio
 - `model` (string, opzionale) — override del modello di default
+- `input_type` (`"query"` | `"passage"`, opzionale) — intento **semantico**:
+  `query` = sto cercando, `passage` = sto indicizzando. Il server lo traduce nel
+  prefisso corretto per il modello (es. e5 → `query:` / `passage:`); per i
+  modelli che non usano prefissi viene ignorato. Se omesso, nessun prefisso.
 - `normalize_embeddings` (bool, opzionale, default `true`)
+
+Il client resta **agnostico rispetto al modello**: manda sempre la stessa forma
+e lascia al server la conoscenza di come si parla a ciascun modello.
 
 ```bash
 curl -s http://localhost:8000/embed \
   -H 'Content-Type: application/json' \
-  -d '{"texts": ["ciao mondo", "hello world"]}'
+  -d '{"texts": ["ciao mondo", "hello world"], "input_type": "passage"}'
 ```
 
 Risposta:
@@ -69,6 +96,8 @@ Risposta:
 ```json
 {
   "model": "intfloat/multilingual-e5-small",
+  "input_type": "passage",
+  "prefix_applied": true,
   "embeddings": [[...], [...]]
 }
 ```
