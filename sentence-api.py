@@ -10,6 +10,7 @@ app = Flask(__name__)
 # only used when a request omits "model".
 DEFAULT_MODEL = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
 MODEL_CACHE = max(1, int(os.environ.get("EMBEDDING_MODEL_CACHE", "2")))
+PORT = int(os.environ.get("EMBEDDING_PORT", "8000"))
 
 # Per-family input prefixes. Some embedding models are trained to distinguish a
 # search query from an indexed passage and require a textual prefix to embed
@@ -156,4 +157,4 @@ def embed():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=PORT)

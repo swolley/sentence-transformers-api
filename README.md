@@ -22,6 +22,7 @@ pip install -r requirements.txt
 | ------------------------ | ------------------------------------ | --------------------------------------------- |
 | `EMBEDDING_MODEL`        | `intfloat/multilingual-e5-small`     | Modello caricato all'avvio / usato di default |
 | `EMBEDDING_MODEL_CACHE`  | `2`                                  | Quanti modelli tenere residenti (LRU)         |
+| `EMBEDDING_PORT`         | `8000`                               | Porta di ascolto                              |
 
 I modelli vengono scaricati automaticamente da Hugging Face al primo utilizzo e
 non sono versionati nel repo.
@@ -32,7 +33,10 @@ non sono versionati nel repo.
 python sentence-api.py
 ```
 
-Il servizio ascolta su `0.0.0.0:8000`.
+Il servizio ascolta su `0.0.0.0` sulla porta `EMBEDDING_PORT` (default `8000`).
+
+Il modello di default viene caricato all'avvio: se non è scaricabile o
+utilizzabile il processo termina subito, invece di partire e rispondere 500.
 
 ## API
 
