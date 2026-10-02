@@ -1,7 +1,8 @@
+import math
 import os
 
 from flask import Flask, jsonify, request
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
 app = Flask(__name__)
 
@@ -11,6 +12,19 @@ app = Flask(__name__)
 DEFAULT_MODEL = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
 MODEL_CACHE = max(1, int(os.environ.get("EMBEDDING_MODEL_CACHE", "2")))
 PORT = int(os.environ.get("EMBEDDING_PORT", "8000"))
+
+# Cross-encoder reranking (POST /score). As with /embed, the client may name the
+# model in the request and this is the default. It has no built-in value: a
+# cross-encoder is another kind of model than the embedding one, it must be
+# multilingual for multilingual content, and a host that does not rerank should
+# say so (503) instead of scoring with a guess.
+RERANK_MODEL = os.environ.get("CROSS_ENCODER_MODEL") or None
+RERANK_MODEL_CACHE = max(1, int(os.environ.get("CROSS_ENCODER_MODEL_CACHE", "1")))
+# Pairs are truncated to this many tokens: a long-context reranker would
+# otherwise default to its whole window, which is slow on CPU.
+RERANK_MAX_LENGTH = max(1, int(os.environ.get("CROSS_ENCODER_MAX_LENGTH", "512")))
+# The Laraplate client sends at most 64 pairs per request.
+RERANK_MAX_PAIRS = max(1, int(os.environ.get("CROSS_ENCODER_MAX_PAIRS", "64")))
 
 # Per-family input prefixes. Some embedding models are trained to distinguish a
 # search query from an indexed passage and require a textual prefix to embed
@@ -91,8 +105,80 @@ def apply_prefix(texts, model_name, input_type):
     return out, added
 
 
-# Warm the default so the first embed request is not a cold load.
+# name -> CrossEncoder, same LRU scheme as the embedding models.
+_rerankers = {}
+
+
+def load_reranker(name):
+    """Return (name, CrossEncoder), or (None, None) when no model is configured."""
+    name = name or RERANK_MODEL
+    if not name:
+        return None, None
+    model = _rerankers.pop(name, None)
+    if model is None:
+        model = CrossEncoder(name, max_length=RERANK_MAX_LENGTH)
+    _rerankers[name] = model  # mark as most-recently used
+    while len(_rerankers) > RERANK_MODEL_CACHE:
+        _rerankers.pop(next(iter(_rerankers)))
+    return name, model
+
+
+def reranker_info():
+    return {
+        "default_model": RERANK_MODEL,
+        "loaded_models": list(_rerankers.keys()),
+        "model_cache": RERANK_MODEL_CACHE,
+        "max_length": RERANK_MAX_LENGTH,
+        "max_pairs": RERANK_MAX_PAIRS,
+    }
+
+
+def validate_pairs(pairs):
+    """Return an error message for a malformed `pairs` value, or None."""
+    if not isinstance(pairs, list):
+        return 'pairs must be a list of {"query": str, "text": str}'
+    if len(pairs) > RERANK_MAX_PAIRS:
+        return f"too many pairs: {len(pairs)} (max {RERANK_MAX_PAIRS})"
+    for index, pair in enumerate(pairs):
+        if (
+            not isinstance(pair, dict)
+            or not isinstance(pair.get("query"), str)
+            or not isinstance(pair.get("text"), str)
+        ):
+            return f'pairs[{index}] must be {{"query": str, "text": str}}'
+    return None
+
+
+def score_pairs(model, pairs):
+    """One relevance score in [0, 1] per pair, in the order received.
+
+    The sigmoid is passed explicitly. With activation_fn=None the library falls
+    back to the model's own default, which is a sigmoid for some checkpoints and
+    raw logits for others (the MS MARCO ones). The Laraplate client clamps
+    scores to [0, 1], so raw logits would collapse into ties and lose the order.
+    """
+    from torch import nn
+
+    raw = model.predict(
+        [(pair["query"], pair["text"]) for pair in pairs],
+        activation_fn=nn.Sigmoid(),
+        convert_to_numpy=True,
+    )
+    if getattr(raw, "ndim", 1) != 1 or len(raw) != len(pairs):
+        raise ValueError(
+            "the model does not return one score per pair: it is not a single-score cross-encoder"
+        )
+    scores = [float(score) for score in raw]
+    if not all(math.isfinite(score) for score in scores):
+        raise ValueError("the model returned a non-finite score")
+    return scores
+
+
+# Warm the defaults so the first request is not a cold load. A model that cannot
+# be loaded stops the process here instead of answering 500 to every request.
 load_model(DEFAULT_MODEL)
+if RERANK_MODEL:
+    load_reranker(RERANK_MODEL)
 
 
 @app.route("/health", methods=["GET"])
@@ -103,6 +189,7 @@ def health():
         "default_model": DEFAULT_MODEL,
         "loaded_models": list(_models.keys()),
         "model_cache": MODEL_CACHE,
+        "reranker": reranker_info(),
     })
 
 
@@ -120,6 +207,7 @@ def models():
         "model_cache": MODEL_CACHE,
         "input_types": ["query", "passage"],
         "prefix_families": MODEL_PREFIXES,
+        "reranker": reranker_info(),
     })
 
 
@@ -151,6 +239,35 @@ def embed():
             "input_type": input_type,
             "prefix_applied": prefix_applied,
             "embeddings": [embedding.tolist() for embedding in embeddings],
+        })
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/score", methods=["POST"])
+def score():
+    """Relevance score in [0, 1] for each {query, text} pair, from a cross-encoder."""
+    try:
+        data = request.get_json(silent=True) or {}
+        pairs = data.get("pairs")
+
+        error = validate_pairs(pairs)
+        if error:
+            return jsonify({"error": error}), 400
+
+        requested = data.get("model")
+        if requested is not None and (not isinstance(requested, str) or requested == ""):
+            return jsonify({"error": "model must be a non-empty string"}), 400
+
+        name, model = load_reranker(requested)
+        if model is None:
+            return jsonify({
+                "error": 'No cross-encoder model configured: set CROSS_ENCODER_MODEL or send "model"',
+            }), 503
+
+        return jsonify({
+            "model": name,
+            "scores": score_pairs(model, pairs) if pairs else [],
         })
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": str(exc)}), 500

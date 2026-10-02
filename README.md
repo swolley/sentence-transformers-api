@@ -7,7 +7,7 @@ il modello di default serve solo quando la richiesta non specifica `model`.
 
 ## Requisiti
 
-- Python 3.10+
+- Python 3.11+ (`requirements.txt` fissa `numpy==2.3.2`, che richiede 3.11)
 - Le dipendenze in [`requirements.txt`](requirements.txt)
 
 ```bash
@@ -23,6 +23,10 @@ pip install -r requirements.txt
 | `EMBEDDING_MODEL`        | `intfloat/multilingual-e5-small`     | Modello caricato all'avvio / usato di default |
 | `EMBEDDING_MODEL_CACHE`  | `2`                                  | Quanti modelli tenere residenti (LRU)         |
 | `EMBEDDING_PORT`         | `8000`                               | Porta di ascolto                              |
+| `CROSS_ENCODER_MODEL`    | *(nessuno)*                          | Modello di rerank di default per `/score`. Non impostato: `/score` risponde 503 se la richiesta non indica `model` |
+| `CROSS_ENCODER_MODEL_CACHE` | `1`                               | Quanti modelli di rerank tenere residenti (LRU) |
+| `CROSS_ENCODER_MAX_LENGTH`  | `512`                             | Token massimi per coppia (il resto viene troncato) |
+| `CROSS_ENCODER_MAX_PAIRS`   | `64`                              | Coppie massime per richiesta (il client Laraplate ne invia al massimo 64) |
 
 I modelli vengono scaricati automaticamente da Hugging Face al primo utilizzo e
 non sono versionati nel repo.
@@ -50,9 +54,18 @@ Stato del servizio e modelli caricati.
   "model": "intfloat/multilingual-e5-small",
   "default_model": "intfloat/multilingual-e5-small",
   "loaded_models": ["intfloat/multilingual-e5-small"],
-  "model_cache": 2
+  "model_cache": 2,
+  "reranker": {
+    "default_model": null,
+    "loaded_models": [],
+    "model_cache": 1,
+    "max_length": 512,
+    "max_pairs": 64
+  }
 }
 ```
+
+`reranker.default_model` a `null` indica un host che non fa rerank.
 
 ### `GET /models`
 
@@ -108,11 +121,55 @@ Risposta:
 }
 ```
 
+### `POST /score`
+
+Rerank con un cross-encoder: dà un punteggio di pertinenza a ogni coppia
+domanda-documento. Body JSON:
+
+- `pairs` (array di `{"query": string, "text": string}`) — obbligatorio, al
+  massimo `CROSS_ENCODER_MAX_PAIRS`
+- `model` (string, opzionale) — override del modello di default
+
+Il modello deve essere un **cross-encoder** (un modello addestrato per il rerank,
+non un modello di embeddings) e, per contenuti in italiano, multilingue. Il
+server passa la sigmoide in modo esplicito, quindi i punteggi sono sempre in
+`[0, 1]` anche per i checkpoint che di default restituiscono logit.
+
+```bash
+curl -s http://localhost:8000/score \
+  -H 'Content-Type: application/json' \
+  -d '{"pairs": [{"query": "orari di apertura", "text": "Il museo è aperto dalle 9 alle 18"}]}'
+```
+
+Risposta:
+
+```json
+{ "model": "<modello>", "scores": [0.93] }
+```
+
+Errori: `400` per un body malformato o troppe coppie, `503` se non c'è nessun
+modello (né `CROSS_ENCODER_MODEL` né `model` nella richiesta), `500` se il
+modello non restituisce un punteggio per coppia. Il client Laraplate tratta
+qualunque errore come "rerank non eseguito" e tiene l'ordine originale.
+
+Dal lato Laraplate l'indirizzo si imposta con `CROSS_ENCODER_ENDPOINT`
+(es. `http://HOST:8000/score`): il default del client è la porta 8001.
+
+## Test
+
+```bash
+python -m unittest discover -s tests
+```
+
+I test sostituiscono `sentence-transformers` e `torch` con finti: non scaricano
+nessun modello e verificano cosa il servizio chiede al modello e cosa risponde.
+
 ## Deploy (systemd)
 
 Il file [`sentence-transformers.service`](sentence-transformers.service) è la
 unit usata in produzione. Presuppone il virtualenv in `/opt/ai-env` e il codice
-in `/opt/sentence-api`.
+in `/opt/sentence-api`. Per abilitare il rerank aggiungere alla unit
+`Environment=CROSS_ENCODER_MODEL=<modello>` prima di riavviare.
 
 ```bash
 sudo cp sentence-transformers.service /etc/systemd/system/
