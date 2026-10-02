@@ -152,7 +152,7 @@ modello (né `CROSS_ENCODER_MODEL` né `model` nella richiesta), `500` se il
 modello non restituisce un punteggio per coppia. Il client Laraplate tratta
 qualunque errore come "rerank non eseguito" e tiene l'ordine originale.
 
-Dal lato Laraplate l'indirizzo si imposta con `CROSS_ENCODER_ENDPOINT`
+Dal lato Laraplate l'indirizzo si imposta con `CROSS_ENCODER_URL`
 (es. `http://HOST:8000/score`): il default del client è la porta 8001.
 
 ## Test
