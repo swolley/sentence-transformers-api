@@ -14,11 +14,13 @@ MODEL_CACHE = max(1, int(os.environ.get("EMBEDDING_MODEL_CACHE", "2")))
 PORT = int(os.environ.get("EMBEDDING_PORT", "8000"))
 
 # Cross-encoder reranking (POST /score). As with /embed, the client may name the
-# model in the request and this is the default. It has no built-in value: a
-# cross-encoder is another kind of model than the embedding one, it must be
-# multilingual for multilingual content, and a host that does not rerank should
-# say so (503) instead of scoring with a guess.
-RERANK_MODEL = os.environ.get("CROSS_ENCODER_MODEL") or None
+# model in the request and this is the default. A cross-encoder is another kind
+# of model than the embedding one and must be multilingual for multilingual
+# content, hence a multilingual MiniLM. Setting CROSS_ENCODER_MODEL to an empty
+# string turns the default off: the host then does not rerank and answers 503
+# unless the request names a model.
+DEFAULT_RERANK_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+RERANK_MODEL = os.environ.get("CROSS_ENCODER_MODEL", DEFAULT_RERANK_MODEL) or None
 RERANK_MODEL_CACHE = max(1, int(os.environ.get("CROSS_ENCODER_MODEL_CACHE", "1")))
 # Pairs are truncated to this many tokens: a long-context reranker would
 # otherwise default to its whole window, which is slow on CPU.

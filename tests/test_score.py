@@ -107,6 +107,17 @@ class ScoreEndpointTest(unittest.TestCase):
 
         self.assertIsInstance(FakeCrossEncoder.instances[0].calls[0]["activation_fn"], FakeSigmoid)
 
+    def test_uses_the_multilingual_default_model_when_none_is_configured(self):
+        client = self.service()
+
+        response = client.post("/score", json={"pairs": [pair()]})
+
+        self.assertEqual(response.get_json()["model"], "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+        self.assertEqual(
+            [model.name for model in FakeCrossEncoder.instances],
+            ["cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"],
+        )
+
     def test_loads_the_default_model_at_startup_with_the_length_limit(self):
         self.service(CROSS_ENCODER_MODEL="org/reranker", CROSS_ENCODER_MAX_LENGTH="256")
 
@@ -125,8 +136,8 @@ class ScoreEndpointTest(unittest.TestCase):
         self.assertEqual(response.get_json()["model"], "org/second")
         self.assertEqual(client.get("/health").get_json()["reranker"]["loaded_models"], ["org/second"])
 
-    def test_answers_503_when_no_model_is_configured_and_none_is_requested(self):
-        client = self.service()
+    def test_answers_503_when_the_default_is_turned_off_and_no_model_is_requested(self):
+        client = self.service(CROSS_ENCODER_MODEL="")
 
         response = client.post("/score", json={"pairs": [pair()]})
 
@@ -134,8 +145,8 @@ class ScoreEndpointTest(unittest.TestCase):
         self.assertIn("CROSS_ENCODER_MODEL", response.get_json()["error"])
         self.assertEqual(FakeCrossEncoder.instances, [])
 
-    def test_a_host_with_no_default_still_scores_when_the_request_names_a_model(self):
-        client = self.service()
+    def test_a_host_with_the_default_off_still_scores_when_the_request_names_a_model(self):
+        client = self.service(CROSS_ENCODER_MODEL="")
 
         response = client.post("/score", json={"pairs": [pair()], "model": "org/reranker"})
 
@@ -214,7 +225,7 @@ class ScoreEndpointTest(unittest.TestCase):
 
     def test_reports_whether_it_reranks_in_health_and_models(self):
         with_model = self.service(CROSS_ENCODER_MODEL="org/reranker")
-        without_model = self.service()
+        without_model = self.service(CROSS_ENCODER_MODEL="")
 
         for client in (with_model, without_model):
             for path in ("/health", "/models"):

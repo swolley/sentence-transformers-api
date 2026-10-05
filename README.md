@@ -23,7 +23,7 @@ pip install -r requirements.txt
 | `EMBEDDING_MODEL`        | `intfloat/multilingual-e5-small`     | Modello caricato all'avvio / usato di default |
 | `EMBEDDING_MODEL_CACHE`  | `2`                                  | Quanti modelli tenere residenti (LRU)         |
 | `EMBEDDING_PORT`         | `8000`                               | Porta di ascolto                              |
-| `CROSS_ENCODER_MODEL`    | *(nessuno)*                          | Modello di rerank di default per `/score`. Non impostato: `/score` risponde 503 se la richiesta non indica `model` |
+| `CROSS_ENCODER_MODEL`    | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | Modello di rerank di default per `/score`, caricato all'avvio. Stringa vuota: rerank spento, `/score` risponde 503 se la richiesta non indica `model` |
 | `CROSS_ENCODER_MODEL_CACHE` | `1`                               | Quanti modelli di rerank tenere residenti (LRU) |
 | `CROSS_ENCODER_MAX_LENGTH`  | `512`                             | Token massimi per coppia (il resto viene troncato) |
 | `CROSS_ENCODER_MAX_PAIRS`   | `64`                              | Coppie massime per richiesta (il client Laraplate ne invia al massimo 64) |
@@ -148,7 +148,7 @@ Risposta:
 ```
 
 Errori: `400` per un body malformato o troppe coppie, `503` se non c'è nessun
-modello (né `CROSS_ENCODER_MODEL` né `model` nella richiesta), `500` se il
+modello (`CROSS_ENCODER_MODEL` vuoto e nessun `model` nella richiesta), `500` se il
 modello non restituisce un punteggio per coppia. Il client Laraplate tratta
 qualunque errore come "rerank non eseguito" e tiene l'ordine originale.
 
@@ -171,8 +171,9 @@ nessun modello e verificano cosa il servizio chiede al modello e cosa risponde.
 
 Il file [`sentence-transformers.service`](sentence-transformers.service) è la
 unit usata in produzione. Presuppone il virtualenv in `/opt/ai-env` e il codice
-in `/opt/sentence-api`. Per abilitare il rerank aggiungere alla unit
-`Environment=CROSS_ENCODER_MODEL=<modello>` prima di riavviare.
+in `/opt/sentence-api`. Il rerank è attivo con il modello di default. Per configurarlo aggiungere alla unit
+`Environment=CROSS_ENCODER_MODEL=<modello>` per cambiare il modello di rerank, o
+`Environment=CROSS_ENCODER_MODEL=` per spegnerlo, prima di riavviare.
 
 ```bash
 sudo cp sentence-transformers.service /etc/systemd/system/
